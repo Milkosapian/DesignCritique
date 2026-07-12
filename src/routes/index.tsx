@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useRef, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { analyzeDesign, type AnalyzeResponse } from "@/lib/analyze.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -22,85 +24,104 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type Section = { title: string; body: string };
+type Result = Extract<AnalyzeResponse, { ok: true }>["result"];
 
-const SECTIONS: Section[] = [
-  {
-    title: "Visual Hierarchy",
-    body: "The primary CTA has strong visual weight, but secondary actions compete for attention due to similar sizing. Consider reducing the visual prominence of tertiary elements.",
-  },
-  {
-    title: "Spacing & Alignment",
-    body: "Spacing is mostly consistent, but the padding between the header and content block feels tight at 8px. Recommend increasing to 16–24px for better breathing room.",
-  },
-  {
-    title: "Accessibility",
-    body: "Text contrast on the muted gray labels may fall below WCAG AA standards. Verify contrast ratio is at least 4.5:1 for body text.",
-  },
-  {
-    title: "CTA Clarity",
-    body: "The primary button uses clear action language, but its placement below the fold may reduce discoverability. Consider moving it above the scroll line.",
-  },
-  {
-    title: "Cognitive Load",
-    body: "The interface presents 7 distinct interactive elements in the initial view. Consider progressive disclosure to reduce initial decision fatigue.",
-  },
-  {
-    title: "Visual Balance",
-    body: "The layout leans heavily left-weighted. Introducing an element on the right side, or adjusting the grid, would improve overall symmetry.",
-  },
+const SECTION_META: { key: keyof Result; title: string }[] = [
+  { key: "visual_hierarchy", title: "Visual Hierarchy" },
+  { key: "spacing_alignment", title: "Spacing & Alignment" },
+  { key: "accessibility", title: "Accessibility" },
+  { key: "cta_clarity", title: "CTA Clarity" },
+  { key: "cognitive_load", title: "Cognitive Load" },
+  { key: "visual_balance", title: "Visual Balance" },
 ];
 
-const SCORE = 7.5;
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const comma = dataUrl.indexOf(",");
+      resolve(comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 function Index() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [status, setStatus] = useState<"idle" | "loading" | "done">("idle");
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [result, setResult] = useState<Result | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const analyze = useServerFn(analyzeDesign);
 
-  const loadFile = useCallback((file: File) => {
-    if (!file.type.startsWith("image/")) return;
-    const url = URL.createObjectURL(file);
+  const loadFile = useCallback((f: File) => {
+    if (!f.type.startsWith("image/")) return;
+    const url = URL.createObjectURL(f);
     setImageUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return url;
     });
-    setFileName(file.name);
+    setFile(f);
+    setFileName(f.name);
     setStatus("idle");
+    setResult(null);
+    setErrorMsg(null);
   }, []);
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) loadFile(file);
+    const f = e.dataTransfer.files?.[0];
+    if (f) loadFile(f);
   };
 
-  const analyze = () => {
+  const runAnalyze = async () => {
+    if (!file) return;
     setStatus("loading");
-    setTimeout(() => setStatus("done"), 2000);
+    setErrorMsg(null);
+    try {
+      const imageBase64 = await fileToBase64(file);
+      const res = await analyze({ data: { imageBase64, mediaType: file.type || "image/png" } });
+      if (res.ok) {
+        setResult(res.result);
+        setStatus("done");
+      } else {
+        setErrorMsg(res.error);
+        setStatus("error");
+      }
+    } catch (e) {
+      setErrorMsg((e as Error).message);
+      setStatus("error");
+    }
   };
 
   const reset = () => {
     if (imageUrl) URL.revokeObjectURL(imageUrl);
     setImageUrl(null);
+    setFile(null);
     setFileName(null);
     setStatus("idle");
+    setResult(null);
+    setErrorMsg(null);
   };
 
   const exportMarkdown = async () => {
+    if (!result) return;
     const md = [
       "# DesignCritic Report",
       "",
       fileName ? `**File:** ${fileName}` : null,
       "",
-      ...SECTIONS.flatMap((s) => [`## ${s.title}`, "", s.body, ""]),
+      ...SECTION_META.flatMap((s) => [`## ${s.title}`, "", result[s.key] as string, ""]),
       `## Confidence Score`,
       "",
-      `**${SCORE}/10**`,
+      `**${result.confidence_score.toFixed(1)}/10**`,
       "",
     ]
       .filter((l) => l !== null)
@@ -114,7 +135,7 @@ function Index() {
     }
   };
 
-  const scorePct = (SCORE / 10) * 100;
+  const scorePct = result ? (result.confidence_score / 10) * 100 : 0;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -139,7 +160,6 @@ function Index() {
           </p>
         </div>
 
-        {/* Upload zone */}
         {!imageUrl ? (
           <div
             onDragOver={(e) => {
@@ -183,8 +203,8 @@ function Index() {
               accept="image/*"
               className="hidden"
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) loadFile(file);
+                const f = e.target.files?.[0];
+                if (f) loadFile(f);
               }}
             />
           </div>
@@ -193,7 +213,9 @@ function Index() {
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{fileName}</p>
-                <p className="text-xs text-muted-foreground">Ready for analysis</p>
+                <p className="text-xs text-muted-foreground">
+                  {status === "done" ? "Analysis complete" : "Ready for analysis"}
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -215,7 +237,7 @@ function Index() {
             {status !== "done" && (
               <div className="mt-4 flex justify-end">
                 <button
-                  onClick={analyze}
+                  onClick={runAnalyze}
                   disabled={status === "loading"}
                   className="inline-flex items-center gap-2 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-60"
                 >
@@ -224,6 +246,8 @@ function Index() {
                       <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-background/40 border-t-background" />
                       Analyzing…
                     </>
+                  ) : status === "error" ? (
+                    "Retry Analysis"
                   ) : (
                     "Analyze Design"
                   )}
@@ -233,7 +257,6 @@ function Index() {
           </div>
         )}
 
-        {/* Loading skeleton */}
         {status === "loading" && (
           <div className="mt-10 space-y-3">
             {[0, 1, 2].map((i) => (
@@ -245,8 +268,14 @@ function Index() {
           </div>
         )}
 
-        {/* Report */}
-        {status === "done" && (
+        {status === "error" && errorMsg && (
+          <div className="mt-10 rounded-xl border border-destructive/40 bg-destructive/10 p-5 text-sm text-destructive">
+            <p className="font-medium">Analysis failed</p>
+            <p className="mt-1 text-destructive/90">{errorMsg}</p>
+          </div>
+        )}
+
+        {status === "done" && result && (
           <section className="mt-12">
             <div className="mb-6 flex items-end justify-between border-b border-border pb-4">
               <div>
@@ -257,9 +286,9 @@ function Index() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              {SECTIONS.map((s, i) => (
+              {SECTION_META.map((s, i) => (
                 <article
-                  key={s.title}
+                  key={s.key}
                   className="rounded-xl border border-border bg-card p-5"
                 >
                   <div className="mb-3 flex items-center justify-between">
@@ -268,12 +297,13 @@ function Index() {
                       {String(i + 1).padStart(2, "0")}
                     </span>
                   </div>
-                  <p className="text-sm leading-relaxed text-muted-foreground">{s.body}</p>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    {result[s.key] as string}
+                  </p>
                 </article>
               ))}
             </div>
 
-            {/* Score */}
             <div className="mt-6 rounded-xl border border-border bg-card p-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -281,7 +311,7 @@ function Index() {
                     Confidence Score
                   </p>
                   <p className="mt-2 text-3xl font-semibold tracking-tight">
-                    {SCORE.toFixed(1)}
+                    {result.confidence_score.toFixed(1)}
                     <span className="text-base font-normal text-muted-foreground"> / 10</span>
                   </p>
                 </div>
@@ -309,7 +339,7 @@ function Index() {
 
       <footer className="mt-16 border-t border-border">
         <div className="mx-auto max-w-5xl px-6 py-6 text-xs text-muted-foreground">
-          DesignCritic · Placeholder analysis. AI backend coming soon.
+          DesignCritic · Powered by Claude.
         </div>
       </footer>
     </div>
