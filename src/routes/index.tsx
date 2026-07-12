@@ -15,7 +15,7 @@ export const Route = createFileRoute("/")({
       { property: "og:title", content: "DesignCritic — UI/UX Design Critique" },
       {
         property: "og:description",
-        content: "Structured design critiques for your UI screenshots.",
+        content: "Upload a UI screenshot and get a structured design critique across hierarchy, spacing, accessibility, and more.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

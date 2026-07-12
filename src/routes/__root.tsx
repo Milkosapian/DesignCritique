@@ -77,14 +77,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "DesignCritic — UI/UX Design Critique" },
+      { name: "description", content: "Upload a UI screenshot and get a structured design critique across hierarchy, spacing, accessibility, and more." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "DesignCritic — UI/UX Design Critique" },
+      { property: "og:description", content: "Upload a UI screenshot and get a structured design critique across hierarchy, spacing, accessibility, and more." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "DesignCritic — UI/UX Design Critique" },
+      { name: "twitter:description", content: "Upload a UI screenshot and get a structured design critique across hierarchy, spacing, accessibility, and more." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/0f64ee41-75e4-4b1c-b1c3-dda2fdfd992e/id-preview-44cc4504--a96e8b2a-7bba-4eb1-9a06-e66a0718e9c1.lovable.app-1783852635447.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/0f64ee41-75e4-4b1c-b1c3-dda2fdfd992e/id-preview-44cc4504--a96e8b2a-7bba-4eb1-9a06-e66a0718e9c1.lovable.app-1783852635447.png" },
     ],
     links: [
       {
